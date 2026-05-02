@@ -1,0 +1,21 @@
+[general]
+name=GPX Appender
+description=Append GPX waypoints or tracks directly into existing project layers. Drag & drop GPX files or folders, pick a destination layer, configure field mappings, and go.
+version=4.0
+qgisMinimumVersion=3.34
+qgisMaximumVersion=4.99
+author=tyhol
+email=you@example.com
+homepage=https://github.com/tyhol/www.dontknowyet
+tracker=https://github.com/tyhol/www.dontknowyet/issues
+repository=https://github.com/tyhol/www.dontknowyet
+tags=gpx,import,append,drag drop,tracks,waypoints,points,lines
+category=Vector
+icon=
+experimental=False
+deprecated=False
+changelog=
+    4.0 - Initial release. Dockable drag-and-drop panel, destination layer picker,
+          field mapping (GPX field, layer pick, expression, parent folder name),
+          Z/ZM geometry support, multi-file and multi-folder import, progress bar,
+          stop button. Compatible with QGIS 3.34+ and QGIS 4.
