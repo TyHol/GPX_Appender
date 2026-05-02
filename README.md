@@ -38,4 +38,4 @@ project layers via a dockable drag-and-drop panel.
 
 ## License
 
-GPLv2 or later — see [LICENSE](LICENSE)
+GPLv3 — see [LICENSE](LICENSE)

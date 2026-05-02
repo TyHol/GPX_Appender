@@ -14,6 +14,7 @@ category=Vector
 icon=
 experimental=False
 deprecated=False
+license=GNU GPL v3
 changelog=
     4.0 - Initial release. Dockable drag-and-drop panel, destination layer picker,
           field mapping (GPX field, layer pick, expression, parent folder name),
