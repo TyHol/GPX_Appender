@@ -30,6 +30,14 @@ from qgis.PyQt.QtWidgets import (
     QAbstractItemView
 )
 from qgis.PyQt.QtCore import Qt, QSettings
+from .compat import (
+    Qt_ItemIsEnabled,
+    QHeaderView_ResizeToContents, QHeaderView_Stretch,
+    QAbstractItemView_NoEditTriggers, QAbstractItemView_NoSelection,
+    QSizePolicy_Expanding,
+)
+
+
 from qgis.PyQt.QtGui import QColor, QFont
 
 from qgis.core import QgsProject, QgsVectorLayer, QgsExpression
@@ -318,12 +326,12 @@ class FieldMappingWidget(QWidget):
 
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Destination field", "Source"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView_ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView_Stretch)
         self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.table.setEditTriggers(QAbstractItemView_NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView_NoSelection)
+        self.table.setSizePolicy(QSizePolicy_Expanding, QSizePolicy_Expanding)
         layout.addWidget(self.table)
 
         btn_row = QHBoxLayout()
@@ -353,7 +361,7 @@ class FieldMappingWidget(QWidget):
 
             # Column 0 — field name (read-only)
             item = QTableWidgetItem(field.name())
-            item.setFlags(Qt.ItemIsEnabled)
+            item.setFlags(Qt_ItemIsEnabled)
             font = QFont()
             font.setFamily("Consolas, monospace")
             item.setFont(font)

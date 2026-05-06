@@ -36,6 +36,13 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.PyQt.QtCore import Qt, QMimeData, pyqtSignal
+from .compat import (
+    Qt_LeftDock, Qt_RightDock, Qt_BottomDock,
+    Qt_AlignCenter, Qt_PointingHand, Qt_ItemIsEnabled,
+    QFrame_HLine, QFrame_Sunken, QSizePolicy_Expanding,
+)
+
+
 from qgis.PyQt.QtGui import QDragEnterEvent, QDropEvent
 
 from qgis.core import (
@@ -43,6 +50,7 @@ from qgis.core import (
     QgsCoordinateTransform, QgsWkbTypes,
     QgsPoint, QgsPointXY, QgsLineString,
     QgsExpression, QgsExpressionContext, QgsExpressionContextUtils,
+    QgsSpatialIndex, QgsFeatureRequest,
     edit
 )
 
@@ -83,12 +91,12 @@ class _DropZone(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setText("Drop GPX files or folders here\nor click to browse")
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt_AlignCenter)
         self.setStyleSheet(self._STYLE_IDLE)
         self.setAcceptDrops(True)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy_Expanding, QSizePolicy_Expanding)
         self.setMinimumHeight(100)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt_PointingHand)
 
     def mousePressEvent(self, event):
         # Let user pick files or a folder
@@ -174,7 +182,7 @@ class GPXDockPanel(QDockWidget):
         self.iface = iface
         self.setObjectName("GPXImporterDock")
         self.setAllowedAreas(
-            Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea
+            Qt_LeftDock | Qt_RightDock | Qt_BottomDock
         )
         self.setMinimumWidth(380)
         self._cancelled = False
@@ -220,9 +228,24 @@ class GPXDockPanel(QDockWidget):
 
         self.layer_combo.currentIndexChanged.connect(self._on_layer_changed)
 
+        # Duplicate handling row
+        dup_row = QHBoxLayout()
+        dup_row.addWidget(QLabel("On duplicate geometry:"))
+        self.dup_combo = QComboBox()
+        self.dup_combo.addItem("Append (never check)", "append")
+        self.dup_combo.addItem("Skip duplicates",      "skip")
+        self.dup_combo.addItem("Replace duplicates",   "replace")
+        self.dup_combo.setToolTip(
+            "How to handle features whose geometry already exists in the target layer.\n"
+            "Points: matched on exact X/Y (and Z if present).\n"
+            "Lines: matched via spatial index then exact geometry comparison."
+        )
+        dup_row.addWidget(self.dup_combo, 1)
+        outer.addLayout(dup_row)
+
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame_HLine)
+        sep.setFrameShadow(QFrame_Sunken)
         outer.addWidget(sep)
 
         # Tabs
@@ -240,8 +263,8 @@ class GPXDockPanel(QDockWidget):
         import_layout.addWidget(self.drop_zone, 1)
 
         sep2 = QFrame()
-        sep2.setFrameShape(QFrame.HLine)
-        sep2.setFrameShadow(QFrame.Sunken)
+        sep2.setFrameShape(QFrame_HLine)
+        sep2.setFrameShadow(QFrame_Sunken)
         import_layout.addWidget(sep2)
 
         self.log = QTextEdit()
@@ -345,6 +368,7 @@ class GPXDockPanel(QDockWidget):
         self.mapping_widget.save_for_layer(layer)
         mappings = self.mapping_widget.get_mappings()
 
+        dup_mode = self.dup_combo.currentData()
         total_files = len(paths)
         for i, path in enumerate(paths):
             if self._cancelled:
@@ -355,22 +379,21 @@ class GPXDockPanel(QDockWidget):
                 total=0   # will be reset per-file inside import methods
             )
             try:
-                self._import_gpx(path, layer, mappings)
+                self._import_gpx(path, layer, mappings, dup_mode)
             except Exception as exc:
                 self._log(f"ERROR  {os.path.basename(path)}: {exc}", error=True)
         self._progress_done()
 
-    def _import_gpx(self, gpx_path, target, mappings):
+    def _import_gpx(self, gpx_path, target, mappings, dup_mode='append'):
         gt = target.geometryType()
         fname = os.path.splitext(os.path.basename(gpx_path))[0]
 
         if gt == QgsWkbTypes.PointGeometry:
-            # Pass full gpx_path so folder-name mapping can use it
-            count = self._import_as_points(gpx_path, target, gpx_path, mappings)
-            self._log(f"OK  {fname}: imported {count} point(s) into '{target.name()}'")
+            added, skipped, replaced = self._import_as_points(gpx_path, target, gpx_path, mappings, dup_mode)
+            self._log(f"OK  {fname}: {added} added, {skipped} skipped, {replaced} replaced in '{target.name()}'")
         elif gt == QgsWkbTypes.LineGeometry:
-            count = self._import_as_lines(gpx_path, target, gpx_path, mappings)
-            self._log(f"OK  {fname}: imported {count} line(s) into '{target.name()}'")
+            added, skipped, replaced = self._import_as_lines(gpx_path, target, gpx_path, mappings, dup_mode)
+            self._log(f"OK  {fname}: {added} added, {skipped} skipped, {replaced} replaced in '{target.name()}'")
         else:
             self._log(f"WARNING  {fname}: unsupported geometry type.", error=True)
 
@@ -458,10 +481,45 @@ class GPXDockPanel(QDockWidget):
                     pass
 
     # ------------------------------------------------------------------
+    # Duplicate geometry detection helpers
+    # ------------------------------------------------------------------
+
+    def _build_point_index(self, target):
+        """Return a set of (round(x,8), round(y,8)) tuples for fast point lookup."""
+        pts = set()
+        for f in target.getFeatures():
+            g = f.geometry()
+            if g and not g.isEmpty():
+                pt = g.asPoint()
+                pts.add((round(pt.x(), 8), round(pt.y(), 8)))
+        return pts
+
+    def _point_is_duplicate(self, geom, existing_pts):
+        pt = geom.asPoint()
+        return (round(pt.x(), 8), round(pt.y(), 8)) in existing_pts
+
+    def _find_duplicate_line_fid(self, geom, spatial_index, target):
+        """
+        Use the spatial index to find candidates then do exact geometry
+        comparison. Returns the fid of the matching feature or None.
+        """
+        candidates = spatial_index.intersects(geom.boundingBox())
+        for fid in candidates:
+            req = QgsFeatureRequest(fid)
+            for feat in target.getFeatures(req):
+                if feat.geometry().equals(geom):
+                    return fid
+        return None
+
+    def _build_line_index(self, target):
+        """Build a QgsSpatialIndex over all existing line features."""
+        return QgsSpatialIndex(target.getFeatures())
+
+    # ------------------------------------------------------------------
     # Point import
     # ------------------------------------------------------------------
 
-    def _import_as_points(self, gpx_path, target, fname, mappings):
+    def _import_as_points(self, gpx_path, target, fname, mappings, dup_mode='append'):
         gpx_layer = self._open_gpx_sublayer(gpx_path, ["waypoints", "track_points"])
         if gpx_layer is None:
             raise RuntimeError("No readable point sublayer found in GPX file.")
@@ -477,12 +535,15 @@ class GPXDockPanel(QDockWidget):
         total = gpx_layer.featureCount()
         self._progress_start(f"Importing {total} points...", total)
 
-        count = 0
+        # Build duplicate lookup once before the edit session if needed
+        existing_pts = self._build_point_index(target) if dup_mode != 'append' else set()
+
+        added = skipped = replaced = 0
         with edit(target):
             for src_feat in gpx_layer.getFeatures():
                 raw_geom = src_feat.geometry()
                 if raw_geom.isEmpty():
-                    count += 1
+                    added += 1
                     continue
 
                 # GPX geometries are always Point or MultiPoint with Z from ele.
@@ -531,24 +592,48 @@ class GPXDockPanel(QDockWidget):
                             break
 
                 self._apply_mappings(new_feat, src_feat, mappings, fname)
-                target.addFeature(new_feat)
-                count += 1
 
-                # Update progress every 100 features to avoid UI thrashing
-                if count % 100 == 0:
+                if dup_mode == 'append':
+                    target.addFeature(new_feat)
+                    added += 1
+                elif self._point_is_duplicate(geom, existing_pts):
+                    if dup_mode == 'skip':
+                        skipped += 1
+                    else:  # replace
+                        # Delete old matching feature(s) then insert new
+                        pt = geom.asPoint()
+                        key = (round(pt.x(), 8), round(pt.y(), 8))
+                        for old_feat in target.getFeatures():
+                            og = old_feat.geometry()
+                            if og and not og.isEmpty():
+                                op = og.asPoint()
+                                if (round(op.x(), 8), round(op.y(), 8)) == key:
+                                    target.deleteFeature(old_feat.id())
+                                    break
+                        target.addFeature(new_feat)
+                        replaced += 1
+                else:
+                    target.addFeature(new_feat)
+                    existing_pts.add((round(geom.asPoint().x(), 8),
+                                      round(geom.asPoint().y(), 8)))
+                    added += 1
+
+                # Update progress every 100 features
+                n = added + skipped + replaced
+                if n % 100 == 0:
                     self._progress_update(
-                        count, f"Importing points... {count}/{total}"
+                        n, f"Points... {n}/{total} ({skipped} skipped, {replaced} replaced)"
                     )
                     if self._cancelled:
                         break
 
-        return count
+        return added, skipped, replaced
 
     # ------------------------------------------------------------------
     # Line import
     # ------------------------------------------------------------------
 
-    def _import_as_lines(self, gpx_path, target, fname, mappings):
+    def _import_as_lines(self, gpx_path, target, fname, mappings, dup_mode='append'):
         gpx_layer = self._open_gpx_sublayer(gpx_path, ["tracks", "routes"])
         if gpx_layer is None:
             raise RuntimeError("No readable line sublayer found in GPX file.")
@@ -564,12 +649,15 @@ class GPXDockPanel(QDockWidget):
         total = gpx_layer.featureCount()
         self._progress_start(f"Importing {total} track(s)...", total)
 
-        count = 0
+        spatial_index = self._build_line_index(target) if dup_mode != 'append' else None
+
+        added = skipped = replaced = 0
         with edit(target):
             for feat_idx, src_feat in enumerate(gpx_layer.getFeatures()):
                 if self._cancelled:
                     break
-                self._progress_update(feat_idx + 1)
+                self._progress_update(feat_idx + 1,
+                    f"Tracks... {feat_idx+1}/{total} ({skipped} skipped, {replaced} replaced)")
                 geom = src_feat.geometry()
                 if geom.isEmpty():
                     continue
@@ -623,10 +711,26 @@ class GPXDockPanel(QDockWidget):
                     new_feat = QgsFeature(target.fields())
                     new_feat.setGeometry(line_geom)
                     self._apply_mappings(new_feat, src_feat, mappings, fname)
-                    target.addFeature(new_feat)
-                    count += 1
 
-        return count
+                    if dup_mode == 'append':
+                        target.addFeature(new_feat)
+                        added += 1
+                    else:
+                        dup_fid = self._find_duplicate_line_fid(
+                            line_geom, spatial_index, target
+                        )
+                        if dup_fid is not None:
+                            if dup_mode == 'skip':
+                                skipped += 1
+                            else:  # replace
+                                target.deleteFeature(dup_fid)
+                                target.addFeature(new_feat)
+                                replaced += 1
+                        else:
+                            target.addFeature(new_feat)
+                            added += 1
+
+        return added, skipped, replaced
 
     # ------------------------------------------------------------------
     # GPX sublayer helper
