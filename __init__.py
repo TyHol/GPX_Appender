@@ -1,3 +1,3 @@
 def classFactory(iface):
-    from .gpx_importer import GPXImporter
-    return GPXImporter(iface)
+    from .gpx_appender import GPXAppender
+    return GPXAppender(iface)

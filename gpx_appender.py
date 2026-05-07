@@ -13,7 +13,7 @@ except AttributeError:
     _Qt_RightDock = Qt.DockWidgetArea.RightDockWidgetArea
 
 
-class GPXImporter:
+class GPXAppender:
 
     def __init__(self, iface):
         self.iface = iface

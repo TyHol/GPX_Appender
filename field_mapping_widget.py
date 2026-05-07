@@ -81,7 +81,7 @@ _SRC_LABELS = {
     SRC_FILENAME: "GPX filename",
 }
 
-SETTINGS_KEY = "gpx_importer/field_mappings"
+SETTINGS_KEY = "gpx_appender/field_mappings"
 
 
 # ---------------------------------------------------------------------------

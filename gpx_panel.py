@@ -180,7 +180,7 @@ class GPXDockPanel(QDockWidget):
     def __init__(self, iface, parent=None):
         super().__init__("GPX Appender", parent)
         self.iface = iface
-        self.setObjectName("GPXImporterDock")
+        self.setObjectName("GPXAppenderDock")
         self.setAllowedAreas(
             Qt_LeftDock | Qt_RightDock | Qt_BottomDock
         )
