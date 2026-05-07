@@ -56,7 +56,7 @@ from qgis.core import (
 
 from .field_mapping_widget import (
     FieldMappingWidget,
-    SRC_IGNORE, SRC_GPX, SRC_LAYER, SRC_EXPR, SRC_FOLDER
+    SRC_IGNORE, SRC_GPX, SRC_LAYER, SRC_EXPR, SRC_FOLDER, SRC_FILENAME
 )
 
 
@@ -381,10 +381,23 @@ class GPXDockPanel(QDockWidget):
             try:
                 self._import_gpx(path, layer, mappings, dup_mode)
             except Exception as exc:
-                self._log(f"ERROR  {os.path.basename(path)}: {exc}", error=True)
+                import traceback
+                detail = str(exc) or type(exc).__name__
+                tb_line = traceback.format_exc().strip().splitlines()[-1]
+                self._log(f"ERROR  {os.path.basename(path)}: {detail} [{tb_line}]", error=True)
         self._progress_done()
 
     def _import_gpx(self, gpx_path, target, mappings, dup_mode='append'):
+        from qgis.core import QgsVectorDataProvider
+        caps = target.dataProvider().capabilities()
+        if not (caps & QgsVectorDataProvider.AddFeatures):
+            raise RuntimeError(
+                f"'{target.name()}' is read-only — its data provider does not "
+                "support adding features. GPX files opened directly in QGIS are "
+                "read-only. Export/save the layer to GeoPackage or Shapefile first, "
+                "then use that as the destination."
+            )
+
         gt = target.geometryType()
         fname = os.path.splitext(os.path.basename(gpx_path))[0]
 
@@ -418,6 +431,9 @@ class GPXDockPanel(QDockWidget):
 
         if src == SRC_FOLDER:
             return os.path.basename(os.path.dirname(gpx_src_name))
+
+        if src == SRC_FILENAME:
+            return os.path.splitext(os.path.basename(gpx_src_name))[0]
 
         if src == SRC_LAYER:
             # The user already selected the exact value they want stored
@@ -520,112 +536,106 @@ class GPXDockPanel(QDockWidget):
     # ------------------------------------------------------------------
 
     def _import_as_points(self, gpx_path, target, fname, mappings, dup_mode='append'):
-        gpx_layer = self._open_gpx_sublayer(gpx_path, ["waypoints", "track_points"])
-        if gpx_layer is None:
+        gpx_layers = self._open_gpx_sublayers(
+            gpx_path, ["waypoints", "track_points", "route_points"]
+        )
+        if not gpx_layers:
             raise RuntimeError("No readable point sublayer found in GPX file.")
 
         transform = QgsCoordinateTransform(
-            gpx_layer.crs(), target.crs(), QgsProject.instance()
+            gpx_layers[0].crs(), target.crs(), QgsProject.instance()
         )
-
         target_wkb = target.wkbType()
         want_z = QgsWkbTypes.hasZ(target_wkb)
         want_m = QgsWkbTypes.hasM(target_wkb)
 
-        total = gpx_layer.featureCount()
+        total = sum(lyr.featureCount() for lyr in gpx_layers)
         self._progress_start(f"Importing {total} points...", total)
 
-        # Build duplicate lookup once before the edit session if needed
         existing_pts = self._build_point_index(target) if dup_mode != 'append' else set()
 
         added = skipped = replaced = 0
         with edit(target):
-            for src_feat in gpx_layer.getFeatures():
-                raw_geom = src_feat.geometry()
-                if raw_geom.isEmpty():
-                    added += 1
-                    continue
-
-                # GPX geometries are always Point or MultiPoint with Z from ele.
-                # Extract a single QgsPoint so we can control Z/M explicitly.
-                pt = None
-                vx = raw_geom.vertices()
-                if vx.hasNext():
-                    pt = vx.next()   # QgsPoint with x, y, z (ele) if present
-
-                if pt is None:
-                    count += 1
-                    continue
-
-                # Build the correctly-dimensioned geometry for the target layer
-                if want_z and want_m:
-                    z = pt.z() if pt.is3D() else 0.0
-                    out_pt = QgsPoint(pt.x(), pt.y(), z, 0.0)
-                    geom = QgsGeometry(out_pt)
-                elif want_z:
-                    z = pt.z() if pt.is3D() else 0.0
-                    out_pt = QgsPoint(pt.x(), pt.y(), z)
-                    geom = QgsGeometry(out_pt)
-                else:
-                    # Plain 2D — drop Z entirely to avoid type mismatch
-                    geom = QgsGeometry.fromPointXY(QgsPointXY(pt.x(), pt.y()))
-
-                geom.transform(transform)
-
-                new_feat = QgsFeature(target.fields())
-                new_feat.setGeometry(geom)
-
-                # If target has Z and GPX has ele, honour the mapping or
-                # fall back to copying ele into any field named "ele"/"elevation"
-                if want_z and pt.is3D():
-                    ele_val = pt.z()
-                    for fn in ("ele", "elevation", "elev", "altitude", "alt"):
-                        if fn in {f.name() for f in target.fields()}:
-                            # only set if not already covered by a mapping
-                            mapped = {m["field_name"] for m in mappings
-                                      if m.get("src") not in ("ignore",)}
-                            if fn not in mapped:
-                                try:
-                                    new_feat[fn] = ele_val
-                                except Exception:
-                                    pass
-                            break
-
-                self._apply_mappings(new_feat, src_feat, mappings, fname)
-
-                if dup_mode == 'append':
-                    target.addFeature(new_feat)
-                    added += 1
-                elif self._point_is_duplicate(geom, existing_pts):
-                    if dup_mode == 'skip':
-                        skipped += 1
-                    else:  # replace
-                        # Delete old matching feature(s) then insert new
-                        pt = geom.asPoint()
-                        key = (round(pt.x(), 8), round(pt.y(), 8))
-                        for old_feat in target.getFeatures():
-                            og = old_feat.geometry()
-                            if og and not og.isEmpty():
-                                op = og.asPoint()
-                                if (round(op.x(), 8), round(op.y(), 8)) == key:
-                                    target.deleteFeature(old_feat.id())
-                                    break
-                        target.addFeature(new_feat)
-                        replaced += 1
-                else:
-                    target.addFeature(new_feat)
-                    existing_pts.add((round(geom.asPoint().x(), 8),
-                                      round(geom.asPoint().y(), 8)))
-                    added += 1
-
-                # Update progress every 100 features
-                n = added + skipped + replaced
-                if n % 100 == 0:
-                    self._progress_update(
-                        n, f"Points... {n}/{total} ({skipped} skipped, {replaced} replaced)"
-                    )
+            for gpx_layer in gpx_layers:
+                if self._cancelled:
+                    break
+                for src_feat in gpx_layer.getFeatures():
                     if self._cancelled:
                         break
+                    raw_geom = src_feat.geometry()
+                    if raw_geom.isEmpty():
+                        added += 1
+                        continue
+
+                    pt = None
+                    vx = raw_geom.vertices()
+                    if vx.hasNext():
+                        pt = vx.next()
+
+                    if pt is None:
+                        added += 1
+                        continue
+
+                    if want_z and want_m:
+                        z = pt.z() if pt.is3D() else 0.0
+                        out_pt = QgsPoint(pt.x(), pt.y(), z, 0.0)
+                        geom = QgsGeometry(out_pt)
+                    elif want_z:
+                        z = pt.z() if pt.is3D() else 0.0
+                        out_pt = QgsPoint(pt.x(), pt.y(), z)
+                        geom = QgsGeometry(out_pt)
+                    else:
+                        geom = QgsGeometry.fromPointXY(QgsPointXY(pt.x(), pt.y()))
+
+                    geom.transform(transform)
+
+                    new_feat = QgsFeature(target.fields())
+                    new_feat.setGeometry(geom)
+
+                    if want_z and pt.is3D():
+                        ele_val = pt.z()
+                        for fn in ("ele", "elevation", "elev", "altitude", "alt"):
+                            if fn in {f.name() for f in target.fields()}:
+                                mapped = {m["field_name"] for m in mappings
+                                          if m.get("src") not in ("ignore",)}
+                                if fn not in mapped:
+                                    try:
+                                        new_feat[fn] = ele_val
+                                    except Exception:
+                                        pass
+                                break
+
+                    self._apply_mappings(new_feat, src_feat, mappings, fname)
+
+                    if dup_mode == 'append':
+                        target.addFeature(new_feat)
+                        added += 1
+                    elif self._point_is_duplicate(geom, existing_pts):
+                        if dup_mode == 'skip':
+                            skipped += 1
+                        else:
+                            pt2 = geom.asPoint()
+                            key = (round(pt2.x(), 8), round(pt2.y(), 8))
+                            for old_feat in target.getFeatures():
+                                og = old_feat.geometry()
+                                if og and not og.isEmpty():
+                                    op = og.asPoint()
+                                    if (round(op.x(), 8), round(op.y(), 8)) == key:
+                                        target.deleteFeature(old_feat.id())
+                                        break
+                            target.addFeature(new_feat)
+                            replaced += 1
+                    else:
+                        target.addFeature(new_feat)
+                        existing_pts.add((round(geom.asPoint().x(), 8),
+                                          round(geom.asPoint().y(), 8)))
+                        added += 1
+
+                    n = added + skipped + replaced
+                    if n % 100 == 0:
+                        self._progress_update(
+                            n, f"Points... {n}/{total} ({skipped} skipped, {replaced} replaced)"
+                        )
 
         return added, skipped, replaced
 
@@ -634,101 +644,97 @@ class GPXDockPanel(QDockWidget):
     # ------------------------------------------------------------------
 
     def _import_as_lines(self, gpx_path, target, fname, mappings, dup_mode='append'):
-        gpx_layer = self._open_gpx_sublayer(gpx_path, ["tracks", "routes"])
-        if gpx_layer is None:
+        gpx_layers = self._open_gpx_sublayers(gpx_path, ["tracks", "routes"])
+        if not gpx_layers:
             raise RuntimeError("No readable line sublayer found in GPX file.")
 
         transform = QgsCoordinateTransform(
-            gpx_layer.crs(), target.crs(), QgsProject.instance()
+            gpx_layers[0].crs(), target.crs(), QgsProject.instance()
         )
-
         target_wkb = target.wkbType()
         want_z = QgsWkbTypes.hasZ(target_wkb)
         want_m = QgsWkbTypes.hasM(target_wkb)
 
-        total = gpx_layer.featureCount()
-        self._progress_start(f"Importing {total} track(s)...", total)
+        total = sum(lyr.featureCount() for lyr in gpx_layers)
+        self._progress_start(f"Importing {total} track(s)/route(s)...", total)
 
         spatial_index = self._build_line_index(target) if dup_mode != 'append' else None
 
+        from qgis.core import QgsLineString as QgsLS
+
+        def parts_of(g):
+            """Yield each linestring part as a list of QgsPoint."""
+            if g is None:
+                return
+            wkt_type = QgsWkbTypes.flatType(g.wkbType())
+            if wkt_type == QgsWkbTypes.LineString:
+                yield [g.pointN(i) for i in range(g.numPoints())]
+            elif wkt_type == QgsWkbTypes.MultiLineString:
+                for pi in range(g.numGeometries()):
+                    part = g.geometryN(pi)
+                    yield [part.pointN(i) for i in range(part.numPoints())]
+
         added = skipped = replaced = 0
+        feat_idx = 0
         with edit(target):
-            for feat_idx, src_feat in enumerate(gpx_layer.getFeatures()):
+            for gpx_layer in gpx_layers:
                 if self._cancelled:
                     break
-                self._progress_update(feat_idx + 1,
-                    f"Tracks... {feat_idx+1}/{total} ({skipped} skipped, {replaced} replaced)")
-                geom = src_feat.geometry()
-                if geom.isEmpty():
-                    continue
-                geom.transform(transform)
+                for src_feat in gpx_layer.getFeatures():
+                    if self._cancelled:
+                        break
+                    feat_idx += 1
+                    self._progress_update(feat_idx,
+                        f"Lines... {feat_idx}/{total} ({skipped} skipped, {replaced} replaced)")
+                    geom = src_feat.geometry()
+                    if geom.isEmpty():
+                        continue
+                    geom.transform(transform)
 
-                # Collect part geometries as lists of QgsPoint vertices,
-                # preserving Z from GPX (which always carries ele as Z).
-                # We use constGet() to walk the underlying geometry tree so
-                # we never lose Z via the lossy asMultiPolyline() path.
-                raw = geom.constGet()
-                if raw is None:
-                    continue
-
-                # Normalise to a list of vertex-lists, one per part
-                from qgis.core import QgsAbstractGeometry, QgsLineString as QgsLS
-                def parts_of(g):
-                    """Yield each linestring part as a list of QgsPoint."""
-                    if g is None:
-                        return
-                    wkt_type = QgsWkbTypes.flatType(g.wkbType())
-                    if wkt_type == QgsWkbTypes.LineString:
-                        yield [g.pointN(i) for i in range(g.numPoints())]
-                    elif wkt_type == QgsWkbTypes.MultiLineString:
-                        for pi in range(g.numGeometries()):
-                            part = g.geometryN(pi)
-                            yield [part.pointN(i) for i in range(part.numPoints())]
-
-                for pts in parts_of(raw):
-                    if not pts:
+                    raw = geom.constGet()
+                    if raw is None:
                         continue
 
-                    # Build points with the right dimensionality for the target
-                    if want_z and want_m:
-                        out_pts = [
-                            QgsPoint(p.x(), p.y(),
-                                     p.z() if p.is3D() else 0.0, 0.0)
-                            for p in pts
-                        ]
-                    elif want_z:
-                        out_pts = [
-                            QgsPoint(p.x(), p.y(),
-                                     p.z() if p.is3D() else 0.0)
-                            for p in pts
-                        ]
-                    else:
-                        # 2D only — drop Z to avoid type mismatch
-                        out_pts = [QgsPoint(p.x(), p.y()) for p in pts]
+                    for pts in parts_of(raw):
+                        if not pts:
+                            continue
 
-                    line_geom = QgsGeometry(QgsLineString(out_pts))
-
-                    new_feat = QgsFeature(target.fields())
-                    new_feat.setGeometry(line_geom)
-                    self._apply_mappings(new_feat, src_feat, mappings, fname)
-
-                    if dup_mode == 'append':
-                        target.addFeature(new_feat)
-                        added += 1
-                    else:
-                        dup_fid = self._find_duplicate_line_fid(
-                            line_geom, spatial_index, target
-                        )
-                        if dup_fid is not None:
-                            if dup_mode == 'skip':
-                                skipped += 1
-                            else:  # replace
-                                target.deleteFeature(dup_fid)
-                                target.addFeature(new_feat)
-                                replaced += 1
+                        if want_z and want_m:
+                            out_pts = [
+                                QgsPoint(p.x(), p.y(), p.z() if p.is3D() else 0.0, 0.0)
+                                for p in pts
+                            ]
+                        elif want_z:
+                            out_pts = [
+                                QgsPoint(p.x(), p.y(), p.z() if p.is3D() else 0.0)
+                                for p in pts
+                            ]
                         else:
+                            out_pts = [QgsPoint(p.x(), p.y()) for p in pts]
+
+                        line_geom = QgsGeometry(QgsLineString(out_pts))
+
+                        new_feat = QgsFeature(target.fields())
+                        new_feat.setGeometry(line_geom)
+                        self._apply_mappings(new_feat, src_feat, mappings, fname)
+
+                        if dup_mode == 'append':
                             target.addFeature(new_feat)
                             added += 1
+                        else:
+                            dup_fid = self._find_duplicate_line_fid(
+                                line_geom, spatial_index, target
+                            )
+                            if dup_fid is not None:
+                                if dup_mode == 'skip':
+                                    skipped += 1
+                                else:
+                                    target.deleteFeature(dup_fid)
+                                    target.addFeature(new_feat)
+                                    replaced += 1
+                            else:
+                                target.addFeature(new_feat)
+                                added += 1
 
         return added, skipped, replaced
 
@@ -737,13 +743,20 @@ class GPXDockPanel(QDockWidget):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _open_gpx_sublayer(gpx_path, preferred):
+    def _open_gpx_sublayers(gpx_path, preferred):
+        """Return all valid sublayers from preferred, in order.
+
+        We do not filter by featureCount() because some OGR/GPX providers
+        report -1 (unknown) or 0 before a full scan; an empty layer is
+        harmless — the caller's feature loop simply won't iterate.
+        """
+        layers = []
         for sublayer in preferred:
             uri = f"{gpx_path}|layername={sublayer}"
             lyr = QgsVectorLayer(uri, sublayer, "ogr")
-            if lyr.isValid() and lyr.featureCount() > 0:
-                return lyr
-        return None
+            if lyr.isValid():
+                layers.append(lyr)
+        return layers
 
     # ------------------------------------------------------------------
     # Progress helpers

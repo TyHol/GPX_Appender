@@ -65,18 +65,20 @@ GPX_FIELDS_ALL = list(dict.fromkeys(
 ))
 
 # Source-type identifiers (stored in settings)
-SRC_IGNORE  = "ignore"
-SRC_GPX     = "gpx"
-SRC_LAYER   = "layer"
-SRC_EXPR    = "expression"
-SRC_FOLDER  = "folder"
+SRC_IGNORE   = "ignore"
+SRC_GPX      = "gpx"
+SRC_LAYER    = "layer"
+SRC_EXPR     = "expression"
+SRC_FOLDER   = "folder"
+SRC_FILENAME = "gpx_filename"
 
 _SRC_LABELS = {
-    SRC_IGNORE: "(ignore)",
-    SRC_GPX:    "From GPX",
-    SRC_LAYER:  "Layer pick",
-    SRC_EXPR:   "Expression",
-    SRC_FOLDER: "Parent folder",
+    SRC_IGNORE:   "(ignore)",
+    SRC_GPX:      "From GPX",
+    SRC_LAYER:    "Layer pick",
+    SRC_EXPR:     "Expression",
+    SRC_FOLDER:   "Parent folder",
+    SRC_FILENAME: "GPX filename",
 }
 
 SETTINGS_KEY = "gpx_importer/field_mappings"
@@ -371,6 +373,11 @@ class FieldMappingWidget(QWidget):
             src_widget = _SourceWidget(self.iface)
             if field.name() in saved:
                 src_widget.from_dict(saved[field.name()])
+            elif field.name() in GPX_FIELDS_ALL:
+                # Destination field name matches a standard GPX attribute —
+                # auto-select "From GPX" so the user doesn't have to wire
+                # every field manually on a layer that already mirrors the GPX schema.
+                src_widget.from_dict({"src": SRC_GPX, "gpx_field": field.name()})
             self.table.setCellWidget(row, 1, src_widget)
             self.table.setRowHeight(row, 34)
 
