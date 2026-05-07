@@ -17,6 +17,7 @@ project layers via a dockable drag-and-drop panel.
   - *Layer pick* — stamp a specific value from another layer (e.g. Incident ID)
   - *Expression* — any QGIS expression, with full expression builder (e.g. `epoch(now())`)
   - *Parent folder* — uses the GPX file's parent folder name (great for batch imports where folder = person/team name)
+  - *GPX filename* — uses the GPX file's  name
   - *Ignore* — leave the field blank
 - **Mappings saved per layer** — switch destination layers and each remembers its own mapping
 - **Progress bar + Stop button** — for large files with tens of thousands of track points
