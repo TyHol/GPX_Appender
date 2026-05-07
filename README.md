@@ -25,7 +25,7 @@ project layers via a dockable drag-and-drop panel.
 
 ## Installation
 
-1. Download the zip from the [releases page](https://github.com/tyhol/www.dontknowyet/releases)
+1. Download the zip from the [releases page](https://github.com/TyHol/GPX_Appender/releases/tag/v0.1-alpha)
 2. In QGIS: **Plugins → Manage and Install Plugins → Install from ZIP**
 3. Select the downloaded zip and click **Install Plugin**
 
