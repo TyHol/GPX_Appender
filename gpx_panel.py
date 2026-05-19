@@ -32,18 +32,16 @@ import os
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QTextEdit, QFileDialog,
-    QSizePolicy, QFrame, QTabWidget, QProgressBar
+    QFrame, QTabWidget, QProgressBar
 )
 from qgis.PyQt.QtWidgets import QApplication
-from qgis.PyQt.QtCore import Qt, QMimeData, pyqtSignal
+from qgis.PyQt.QtCore import pyqtSignal
 from .compat import (
     Qt_LeftDock, Qt_RightDock, Qt_BottomDock,
-    Qt_AlignCenter, Qt_PointingHand, Qt_ItemIsEnabled,
+    Qt_AlignCenter, Qt_PointingHand,
     QFrame_HLine, QFrame_Sunken, QSizePolicy_Expanding,
 )
 
-
-from qgis.PyQt.QtGui import QDragEnterEvent, QDropEvent
 
 from qgis.core import (
     QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
@@ -100,7 +98,7 @@ class _DropZone(QLabel):
 
     def mousePressEvent(self, event):
         # Let user pick files or a folder
-        from qgis.PyQt.QtWidgets import QMenu, QAction as QAct
+        from qgis.PyQt.QtWidgets import QMenu
         menu = QMenu(self)
         file_act = menu.addAction("Browse for GPX files...")
         folder_act = menu.addAction("Browse for folder(s)...")
@@ -497,9 +495,9 @@ class GPXDockPanel(QDockWidget):
             ("tracks",       "Tracks",       "line"),
             ("routes",       "Routes",       "line"),
         ]
-        desc       = []
+        desc = []
         has_points = False
-        has_lines  = False
+        has_lines = False
 
         for sublayer, label, kind in SUBLAYERS:
             uri = f"{gpx_path}|layername={sublayer}"
@@ -509,7 +507,7 @@ class GPXDockPanel(QDockWidget):
             count = lyr.featureCount()
             if count == 0:
                 continue
-            count_str  = str(count) if count >= 0 else "?"
+            count_str = str(count) if count >= 0 else "?"
             field_names = [
                 f.name() for f in lyr.fields()
                 if f.name().lower() not in ("fid", "ogc_fid")
@@ -594,7 +592,7 @@ class GPXDockPanel(QDockWidget):
                 if val is not None:
                     try:
                         new_feat[fn] = val
-                    except Exception:
+                    except (KeyError, TypeError):
                         pass
             else:
                 # No explicit mapping -> GPX pass-through by name.
@@ -606,7 +604,7 @@ class GPXDockPanel(QDockWidget):
                     continue
                 try:
                     new_feat[fn] = gpx_feat[fn]
-                except Exception:
+                except (KeyError, TypeError):
                     pass
 
     # ------------------------------------------------------------------
@@ -714,7 +712,7 @@ class GPXDockPanel(QDockWidget):
                                 if fn not in mapped:
                                     try:
                                         new_feat[fn] = ele_val
-                                    except Exception:
+                                    except (KeyError, TypeError):
                                         pass
                                 break
 
@@ -773,8 +771,6 @@ class GPXDockPanel(QDockWidget):
 
         spatial_index = self._build_line_index(target) if dup_mode != 'append' else None
 
-        from qgis.core import QgsLineString as QgsLS
-
         def parts_of(g):
             """Yield each linestring part as a list of QgsPoint."""
             if g is None:
@@ -797,8 +793,10 @@ class GPXDockPanel(QDockWidget):
                     if self._cancelled:
                         break
                     feat_idx += 1
-                    self._progress_update(feat_idx,
-                        f"Lines... {feat_idx}/{total} ({skipped} skipped, {replaced} replaced)")
+                    self._progress_update(
+                        feat_idx,
+                        f"Lines... {feat_idx}/{total} ({skipped} skipped, {replaced} replaced)"
+                    )
                     geom = src_feat.geometry()
                     if geom.isEmpty():
                         continue

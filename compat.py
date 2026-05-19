@@ -25,9 +25,9 @@ def _get(obj, pyqt5_name, pyqt6_path):
 
 
 # Qt.DockWidgetArea
-Qt_LeftDock   = _get(Qt, 'LeftDockWidgetArea',  'DockWidgetArea.LeftDockWidgetArea')
-Qt_RightDock  = _get(Qt, 'RightDockWidgetArea', 'DockWidgetArea.RightDockWidgetArea')
-Qt_BottomDock = _get(Qt, 'BottomDockWidgetArea','DockWidgetArea.BottomDockWidgetArea')
+Qt_LeftDock = _get(Qt, 'LeftDockWidgetArea', 'DockWidgetArea.LeftDockWidgetArea')
+Qt_RightDock = _get(Qt, 'RightDockWidgetArea', 'DockWidgetArea.RightDockWidgetArea')
+Qt_BottomDock = _get(Qt, 'BottomDockWidgetArea', 'DockWidgetArea.BottomDockWidgetArea')
 
 # Qt.AlignmentFlag
 Qt_AlignCenter = _get(Qt, 'AlignCenter', 'AlignmentFlag.AlignCenter')
@@ -39,7 +39,7 @@ Qt_PointingHand = _get(Qt, 'PointingHandCursor', 'CursorShape.PointingHandCursor
 Qt_ItemIsEnabled = _get(Qt, 'ItemIsEnabled', 'ItemFlag.ItemIsEnabled')
 
 # QFrame
-QFrame_HLine  = _get(QFrame, 'HLine',  'Shape.HLine')
+QFrame_HLine = _get(QFrame, 'HLine', 'Shape.HLine')
 QFrame_Sunken = _get(QFrame, 'Sunken', 'Shadow.Sunken')
 
 # QSizePolicy
@@ -47,8 +47,8 @@ QSizePolicy_Expanding = _get(QSizePolicy, 'Expanding', 'Policy.Expanding')
 
 # QHeaderView
 QHeaderView_ResizeToContents = _get(QHeaderView, 'ResizeToContents', 'ResizeMode.ResizeToContents')
-QHeaderView_Stretch          = _get(QHeaderView, 'Stretch',          'ResizeMode.Stretch')
+QHeaderView_Stretch = _get(QHeaderView, 'Stretch', 'ResizeMode.Stretch')
 
 # QAbstractItemView
 QAbstractItemView_NoEditTriggers = _get(QAbstractItemView, 'NoEditTriggers', 'EditTrigger.NoEditTriggers')
-QAbstractItemView_NoSelection    = _get(QAbstractItemView, 'NoSelection',    'SelectionMode.NoSelection')
+QAbstractItemView_NoSelection = _get(QAbstractItemView, 'NoSelection', 'SelectionMode.NoSelection')

@@ -26,10 +26,9 @@ import json
 
 from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QComboBox, QLineEdit, QPushButton, QLabel, QHeaderView, QSizePolicy,
-    QAbstractItemView
+    QComboBox, QLineEdit, QPushButton, QLabel
 )
-from qgis.PyQt.QtCore import Qt, QSettings
+from qgis.PyQt.QtCore import QSettings
 from .compat import (
     Qt_ItemIsEnabled,
     QHeaderView_ResizeToContents, QHeaderView_Stretch,
@@ -38,9 +37,9 @@ from .compat import (
 )
 
 
-from qgis.PyQt.QtGui import QColor, QFont
+from qgis.PyQt.QtGui import QFont
 
-from qgis.core import QgsProject, QgsVectorLayer, QgsExpression
+from qgis.core import QgsProject, QgsVectorLayer
 from qgis.gui import QgsExpressionBuilderDialog
 
 # Standard OGR GPX attribute fields (lat/lon/ele are geometry, not fields,
@@ -65,19 +64,19 @@ GPX_FIELDS_ALL = list(dict.fromkeys(
 ))
 
 # Source-type identifiers (stored in settings)
-SRC_IGNORE   = "ignore"
-SRC_GPX      = "gpx"
-SRC_LAYER    = "layer"
-SRC_EXPR     = "expression"
-SRC_FOLDER   = "folder"
+SRC_IGNORE = "ignore"
+SRC_GPX = "gpx"
+SRC_LAYER = "layer"
+SRC_EXPR = "expression"
+SRC_FOLDER = "folder"
 SRC_FILENAME = "gpx_filename"
 
 _SRC_LABELS = {
-    SRC_IGNORE:   "(ignore)",
-    SRC_GPX:      "From GPX",
-    SRC_LAYER:    "Layer pick",
-    SRC_EXPR:     "Expression",
-    SRC_FOLDER:   "Parent folder",
+    SRC_IGNORE: "(ignore)",
+    SRC_GPX: "From GPX",
+    SRC_LAYER: "Layer pick",
+    SRC_EXPR: "Expression",
+    SRC_FOLDER: "Parent folder",
     SRC_FILENAME: "GPX filename",
 }
 
@@ -220,8 +219,8 @@ class _SourceWidget(QWidget):
     def _on_type_changed(self):
         src = self.type_cb.currentData()
         layer_vis = src == SRC_LAYER
-        expr_vis  = src == SRC_EXPR
-        gpx_vis   = src == SRC_GPX
+        expr_vis = src == SRC_EXPR
+        gpx_vis = src == SRC_GPX
 
         self.gpx_field_cb.setVisible(gpx_vis)
         self.lyr_cb.setVisible(layer_vis)
@@ -244,10 +243,10 @@ class _SourceWidget(QWidget):
         if src == SRC_GPX:
             d["gpx_field"] = self.gpx_field_cb.currentText()
         elif src == SRC_LAYER:
-            d["layer_id"]  = self.lyr_cb.currentData()
+            d["layer_id"] = self.lyr_cb.currentData()
             d["layer_name"] = self.lyr_cb.currentText()
-            d["field"]     = self.fld_cb.currentText()
-            d["value"]     = self.val_cb.currentText()
+            d["field"] = self.fld_cb.currentText()
+            d["value"] = self.val_cb.currentText()
         elif src == SRC_EXPR:
             d["expression"] = self.expr_edit.text()
         return d

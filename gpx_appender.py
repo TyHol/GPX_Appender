@@ -1,7 +1,4 @@
-import os
 from qgis.PyQt.QtWidgets import QAction
-from qgis.PyQt.QtGui import QIcon
-from qgis.core import QgsApplication
 from qgis.PyQt.QtCore import Qt
 
 from .gpx_panel import GPXDockPanel

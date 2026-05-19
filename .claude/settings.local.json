@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(bandit -r .)",
+      "Bash(detect-secrets scan *)",
+      "Bash(flake8 . --max-line-length=120)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('detect-secrets: CLEAN' if not d['results'] else f'SECRETS FOUND: {d[\\\\\"results\\\\\"]}'\\)\")"
+    ]
+  }
+}
