@@ -389,6 +389,16 @@ class GPXDockPanel(QDockWidget):
 
     def _import_gpx(self, gpx_path, target, mappings, dup_mode='append'):
         from qgis.core import QgsVectorDataProvider
+
+        # Edit-mode guard — QGIS will not let a second edit context commit cleanly
+        if target.isEditable():
+            self._log(
+                f"WARNING  '{target.name()}' is currently in edit mode. "
+                "Save or cancel edits in QGIS first, then retry — skipping this file.",
+                error=True
+            )
+            return
+
         caps = target.dataProvider().capabilities()
         if not (caps & QgsVectorDataProvider.AddFeatures):
             raise RuntimeError(
@@ -401,14 +411,117 @@ class GPXDockPanel(QDockWidget):
         gt = target.geometryType()
         fname = os.path.splitext(os.path.basename(gpx_path))[0]
 
+        # Warn if a PK-type field (fid/ogc_fid/objectid/gid) is explicitly mapped
+        # to an expression — epoch(now()) will produce duplicate values in a fast
+        # loop over many features.  $id (the source GPX feature ID) is unique per
+        # feature and is available in all expression mappings, so
+        # epoch(now()) + $id is safe.  Removing the mapping lets QGIS auto-assign fid.
+        _pk_names = {"fid", "ogc_fid", "objectid", "gid"}
+        for _m in mappings:
+            if (_m.get("field_name", "").lower() in _pk_names
+                    and _m.get("src") == SRC_EXPR):
+                self._log(
+                    f"  Note: '{_m['field_name']}' is mapped to an expression. "
+                    "epoch(now()) can produce duplicate values across features in a "
+                    "fast loop — use epoch(now()) + $id for uniqueness ($id is the "
+                    "source GPX feature ID, unique per feature). "
+                    "Remove the mapping entirely to let QGIS auto-assign fid."
+                )
+                break
+
+        # Describe GPX contents and check type compatibility
+        desc_lines, has_points, has_lines = self._describe_gpx(gpx_path)
+        self._log(f"  {fname}.gpx contents:")
+        for dl in (desc_lines or ["    (no features found)"]):
+            self._log(dl)
+
         if gt == QgsWkbTypes.PointGeometry:
-            added, skipped, replaced = self._import_as_points(gpx_path, target, gpx_path, mappings, dup_mode)
-            self._log(f"OK  {fname}: {added} added, {skipped} skipped, {replaced} replaced in '{target.name()}'")
+            if not has_points:
+                self._log(
+                    f"  No point data (waypoints / track-points) found in "
+                    f"{fname}.gpx — destination '{target.name()}' is a Point layer. "
+                    "Nothing to import.",
+                    error=True
+                )
+                if has_lines:
+                    self._log(
+                        "  (GPX contains track/route data but the destination is a "
+                        "Point layer — drop onto a Line layer to import tracks.)",
+                        error=True
+                    )
+                return
+            added, skipped, replaced = self._import_as_points(
+                gpx_path, target, gpx_path, mappings, dup_mode
+            )
+            self._log(
+                f"OK  {fname}: {added} added, {skipped} skipped, "
+                f"{replaced} replaced  →  '{target.name()}'"
+            )
+
         elif gt == QgsWkbTypes.LineGeometry:
-            added, skipped, replaced = self._import_as_lines(gpx_path, target, gpx_path, mappings, dup_mode)
-            self._log(f"OK  {fname}: {added} added, {skipped} skipped, {replaced} replaced in '{target.name()}'")
+            if not has_lines:
+                self._log(
+                    f"  No track/route data found in {fname}.gpx — destination "
+                    f"'{target.name()}' is a Line layer. Nothing to import.",
+                    error=True
+                )
+                if has_points:
+                    self._log(
+                        "  (GPX contains waypoint/track-point data but the destination "
+                        "is a Line layer — drop onto a Point layer to import points.)",
+                        error=True
+                    )
+                return
+            added, skipped, replaced = self._import_as_lines(
+                gpx_path, target, gpx_path, mappings, dup_mode
+            )
+            self._log(
+                f"OK  {fname}: {added} added, {skipped} skipped, "
+                f"{replaced} replaced  →  '{target.name()}'"
+            )
+
         else:
             self._log(f"WARNING  {fname}: unsupported geometry type.", error=True)
+
+    def _describe_gpx(self, gpx_path):
+        """
+        Inspect each GPX sublayer and return (lines, has_points, has_lines).
+        lines: list of human-readable description strings for the log.
+        has_points: True if any point sublayer contains features.
+        has_lines:  True if any line sublayer contains features.
+        """
+        SUBLAYERS = [
+            ("waypoints",    "Waypoints",    "point"),
+            ("track_points", "Track points", "point"),
+            ("route_points", "Route points", "point"),
+            ("tracks",       "Tracks",       "line"),
+            ("routes",       "Routes",       "line"),
+        ]
+        desc       = []
+        has_points = False
+        has_lines  = False
+
+        for sublayer, label, kind in SUBLAYERS:
+            uri = f"{gpx_path}|layername={sublayer}"
+            lyr = QgsVectorLayer(uri, sublayer, "ogr")
+            if not lyr.isValid():
+                continue
+            count = lyr.featureCount()
+            if count == 0:
+                continue
+            count_str  = str(count) if count >= 0 else "?"
+            field_names = [
+                f.name() for f in lyr.fields()
+                if f.name().lower() not in ("fid", "ogc_fid")
+            ]
+            fields_str = ", ".join(field_names) if field_names else "—"
+            desc.append(f"    {label}: {count_str}  |  fields: {fields_str}")
+            if kind == "point":
+                has_points = True
+            else:
+                has_lines = True
+
+        return desc, has_points, has_lines
 
     # ------------------------------------------------------------------
     # Value resolution
