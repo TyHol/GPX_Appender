@@ -18,7 +18,7 @@ license=GNU GPL v3
 changelog=4.1 - Edit-mode guard (warns and skips if destination layer is in edit mode).
           GPX content description logged before import (sublayer counts and fields).
           Geometry-type mismatch warnings (points into line layer and vice versa).
-    4.0 - Initial release. Dockable drag-and-drop panel, destination layer picker,
+    	4.0 - Initial release. Dockable drag-and-drop panel, destination layer picker,
           field mapping (GPX field, layer pick, expression, parent folder name),
           Z/ZM geometry support, multi-file and multi-folder import, progress bar,
           stop button. Compatible with QGIS 3.34+ and QGIS 4.
